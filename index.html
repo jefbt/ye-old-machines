@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Ye Old Machines!</title>
+    <!-- Using Phaser 3 via CDN for instant preview compatibility -->
+    <script src="phaser.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #1a1a1a;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden; /* Prevents pull-to-refresh and scrolling on mobile */
+            color: white;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        #game-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        /* Apply the decorative frame directly to the canvas so it scales perfectly */
+        canvas {
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.8);
+            border: 4px solid #3b2d20 !important;
+            border-radius: 10px;
+        }
+        
+        /* Share Modal Styles */
+        #share-modal {
+            display: none;
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0,0,0,0.85); z-index: 1000;
+            justify-content: center; align-items: center;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        .modal-content {
+            background: #2a1c11; border: 4px solid #cd7f32; border-radius: 10px;
+            padding: 20px; text-align: center; max-width: 90%; width: 400px;
+            position: relative; box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        }
+        .close-btn {
+            position: absolute; top: 5px; right: 15px; font-size: 32px; cursor: pointer; color: #ffcc00; font-weight: bold;
+        }
+        .close-btn:hover { color: #ffffff; }
+        #share-preview {
+            width: 100%; border: 2px solid #1a1a1a; margin: 10px 0; border-radius: 5px;
+            background: #000;
+        }
+        .share-buttons {
+            display: flex; flex-direction: column; gap: 10px; margin-top: 10px;
+        }
+        .share-buttons button {
+            padding: 12px; font-family: 'Courier New', Courier, monospace; font-size: 16px;
+            font-weight: bold; cursor: pointer; border: 2px solid #000; border-radius: 5px;
+            transition: opacity 0.2s;
+        }
+        .share-buttons button:hover { opacity: 0.8; }
+        #btn-native-share { background: #E1306C; color: white; } /* Instagram/App color */
+        #btn-download { background: #4CAF50; color: white; }
+        #btn-x { background: #1DA1F2; color: white; }
+        #btn-reddit { background: #FF4500; color: white; }
+    </style>
+</head>
+<body>
+    <div id="game-container"></div>
+    
+    <!-- Share Modal UI -->
+    <div id="share-modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="document.getElementById('share-modal').style.display='none'">&times;</span>
+            <h2 style="margin-top: 0; color: #ffcc00;">Highscore Captured!</h2>
+            <p style="font-size: 14px; margin-bottom: 5px;">Show off your engineering skills!</p>
+            <img id="share-preview" src="" alt="Snapshot" />
+            <div class="share-buttons">
+                <button id="btn-native-share">📲 Share to Apps (Insta, Bluesky...)</button>
+                <button id="btn-download">💾 Save Image</button>
+                <button id="btn-x">🐦 Share on X</button>
+                <button id="btn-reddit">🤖 Share on Reddit</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Phaser Game Configuration ---
+        const config = {
+            type: Phaser.AUTO,
+            scale: {
+                mode: Phaser.Scale.FIT,
+                autoCenter: Phaser.Scale.CENTER_BOTH,
+                width: 800,
+                height: 600,
+                parent: 'game-container'
+            },
+            backgroundColor: '#4a3219',
+            scene: { preload: preload, create: create, update: update }
+        };
+
+        const game = new Phaser.Game(config);
+
+        // --- Global Variables ---
+        let gears = [];
+        let pegs = [];
+        let inputPeg = null;
+        let outputPeg = null;
+        let leverHandle;
+        let leverGear;
+        let isDraggingLever = false;
+        let progressBarFill;
+        let progress = 0;
+        const MAX_PROGRESS = 1000;
+        let statusText;
+        let accumulatedRotation = 0;
+        let isGameWon = false;
+        let lastPopTime = Date.now();
+        const MIN_POP_DELAY = 4000;
+        
+        let newLevelBtn;
+        let shareBtn;
+
+        // Score & Timer Variables
+        let score = 0;
+        let scoreText;
+        let timer = 0;
+        let timerText;
+
+        // --- Preload Assets ---
+        function preload() {
+            createWoodTexture(this);
+            createPegTexture(this);
+            createLeverTextures(this);
+
+            createGearTexture(this, 'gear_fixed_large', 0x444444, 60);
+            createGearTexture(this, 'gear_fixed_medium', 0x444444, 45);
+            createGearTexture(this, 'gear_fixed_small', 0x444444, 30);
+
+            createGearTexture(this, 'gear_drag_large', 0xcd7f32, 60);
+            createGearTexture(this, 'gear_drag_medium', 0xc0c0c0, 45);
+            createGearTexture(this, 'gear_drag_small', 0xffd700, 30);
+        }
+
+        // --- Create Game Scene ---
+        function create() {
+            // Reset global states for when the scene restarts
+            isDraggingLever = false;
+            progress = 0;
+            accumulatedRotation = 0;
+            isGameWon = false;
+            lastPopTime = Date.now();
+            score = 0;
+            timer = 0;
+
+            this.add.image(400, 300, 'wood_bg');
+
+            this.add.text(400, 30, 'YE OLD MACHINES!', {
+                fontSize: '36px', fontFamily: 'Courier', color: '#ffcc00', fontStyle: 'bold', stroke: '#000000', strokeThickness: 4
+            }).setOrigin(0.5);
+
+            // Add UI for Score and Timer
+            scoreText = this.add.text(20, 20, 'Score: 0\nMult: 1x', {
+                fontSize: '18px', fontFamily: 'Courier', color: '#ffffff'
+            });
+
+            timerText = this.add.text(780, 20, 'Time: 0.0s', {
+                fontSize: '18px', fontFamily: 'Courier', color: '#ffffff'
+            }).setOrigin(1, 0);
+
+            this.add.rectangle(400, 80, 404, 24, 0x000000).setOrigin(0.5);
+            progressBarFill = this.add.rectangle(200, 80, 0, 20, 0x00ff00).setOrigin(0, 0.5);
+
+            statusText = this.add.text(400, 115, 'Status: Awaiting Assembly', {
+                fontSize: '18px', fontFamily: 'Courier', color: '#ffffff', backgroundColor: '#000000', padding: { x: 10, y: 5 }
+            }).setOrigin(0.5);
+
+            this.add.text(400, 150, 'Drag gears to empty pegs. Sizes MUST match the gaps to mesh!', {
+                fontSize: '14px', fontFamily: 'Courier', color: '#dddddd'
+            }).setOrigin(0.5);
+
+            // Reduced Toolbox Height
+            this.add.rectangle(400, 540, 800, 120, 0x2a1c11).setOrigin(0.5);
+            this.add.text(400, 495, '- TOOLBOX -', {
+                fontSize: '18px', fontFamily: 'Courier', color: '#888888'
+            }).setOrigin(0.5);
+
+            // New Level Button (Top Right, below Timer)
+            newLevelBtn = this.add.text(780, 50, '[ NEW LEVEL ]', {
+                fontSize: '18px', fontFamily: 'Courier', color: '#ffcc00', backgroundColor: '#4a2e15', padding: { x: 10, y: 5 }, stroke: '#000000', strokeThickness: 2
+            }).setOrigin(1, 0).setInteractive({ useHandCursor: true });
+
+            newLevelBtn.on('pointerdown', () => this.scene.restart());
+            newLevelBtn.on('pointerover', () => newLevelBtn.setStyle({ color: '#ffffff', backgroundColor: '#6b4226' }));
+            newLevelBtn.on('pointerout', () => newLevelBtn.setStyle({ color: '#ffcc00', backgroundColor: '#4a2e15' }));
+
+            // 3. Procedural Random Peg Generation
+            let pegData = generateRandomLevel();
+
+            pegs = pegData.map(data => {
+                let peg = this.add.image(data.x, data.y, 'peg');
+                peg.currentGear = null;
+                peg.type = data.type;
+                
+                if (data.fixedKey) {
+                    let gear = this.add.image(data.x, data.y, data.fixedKey).setDepth(2);
+                    gear.radius = data.radius;
+                    gear.isFixed = true;
+                    peg.currentGear = gear;
+                }
+                
+                if (data.type === 'input') inputPeg = peg;
+                if (data.type === 'output') outputPeg = peg;
+
+                return peg;
+            });
+
+            // 4. Chains, Drive Belts, and Lever System
+            let leverX = 650;
+            let leverY = 323;
+
+            // Visual Chain from the RANDOMIZED Output Peg horizontally to the LEFT edge
+            let outX = outputPeg.x;
+            let outY = outputPeg.y;
+            this.add.rectangle(outX / 2, outY - 15, outX, 6, 0x111111).setDepth(0);
+            this.add.rectangle(outX / 2, outY + 15, outX, 6, 0x111111).setDepth(0);
+
+            // Visual Drive Belt connecting Lever to Input Peg
+            let inX = inputPeg.x;
+            let inY = inputPeg.y;
+            this.add.rectangle((inX + leverX)/2, leverY - 15, leverX - inX, 6, 0x111111).setDepth(0);
+            this.add.rectangle((inX + leverX)/2, leverY + 15, leverX - inX, 6, 0x111111).setDepth(0);
+
+            // Lever Apparatus
+            this.add.image(leverX, leverY, 'lever_base').setDepth(1);
+            leverGear = this.add.image(leverX, leverY, 'gear_fixed_medium').setDepth(2);
+            leverHandle = this.add.image(leverX, leverY, 'lever_handle').setOrigin(10/170, 30/60).setDepth(3);
+            leverHandle.setInteractive({ useHandCursor: true });
+
+            // 5. Create Draggable Gears
+            const gearConfigs = [
+                { key: 'gear_drag_large', x: 150, y: 550, radius: 60 },
+                { key: 'gear_drag_medium', x: 250, y: 550, radius: 45 },
+                { key: 'gear_drag_medium', x: 350, y: 550, radius: 45 },
+                { key: 'gear_drag_small', x: 450, y: 550, radius: 30 },
+                { key: 'gear_drag_small', x: 550, y: 550, radius: 30 },
+                { key: 'gear_drag_small', x: 650, y: 550, radius: 30 }
+            ];
+
+            gears = gearConfigs.map(conf => {
+                let gear = this.add.image(conf.x, conf.y, conf.key).setInteractive({ useHandCursor: true }).setDepth(5);
+                this.input.setDraggable(gear);
+                gear.startX = conf.x;
+                gear.startY = conf.y;
+                gear.currentPeg = null;
+                gear.radius = conf.radius;
+                gear.isFixed = false;
+                return gear;
+            });
+
+            // 6. Setup Drag & Drop Logic
+            this.input.on('dragstart', function (pointer, gameObject) {
+                if(isGameWon) return;
+                gameObject.setDepth(10);
+                if (gameObject.currentPeg) {
+                    gameObject.currentPeg.currentGear = null;
+                    gameObject.currentPeg = null;
+                }
+            });
+
+            this.input.on('drag', function (pointer, gameObject, dragX, dragY) {
+                if(isGameWon) return;
+                gameObject.x = dragX;
+                gameObject.y = dragY;
+            });
+
+            this.input.on('dragend', function (pointer, gameObject) {
+                if(isGameWon) return;
+                gameObject.setDepth(5);
+                let snapped = false;
+
+                for (let i = 0; i < pegs.length; i++) {
+                    let peg = pegs[i];
+                    let dist = Phaser.Math.Distance.Between(gameObject.x, gameObject.y, peg.x, peg.y);
+
+                    if (dist < 40 && !peg.currentGear) {
+                        gameObject.x = peg.x;
+                        gameObject.y = peg.y;
+                        gameObject.currentPeg = peg;
+                        peg.currentGear = gameObject;
+                        snapped = true;
+                        
+                        this.tweens.add({ targets: gameObject, scaleX: 1.1, scaleY: 1.1, yoyo: true, duration: 100 });
+                        break;
+                    }
+                }
+
+                if (!snapped) {
+                    this.tweens.add({ targets: gameObject, x: gameObject.startX, y: gameObject.startY, duration: 300, ease: 'Power2' });
+                }
+                updateStatusText();
+            }, this);
+
+            // 7. Setup Lever Logic
+            leverHandle.on('pointerdown', () => { if(!isGameWon) isDraggingLever = true; });
+            this.input.on('pointerup', () => isDraggingLever = false);
+
+            this.input.on('pointermove', (pointer) => {
+                if (isDraggingLever && !isGameWon) {
+                    const angle = Phaser.Math.Angle.Between(leverHandle.x, leverHandle.y, pointer.x, pointer.y);
+                    let deg = Phaser.Math.RadToDeg(angle);
+                    let delta = deg - leverHandle.angle;
+                    
+                    if (delta > 180) delta -= 360;
+                    if (delta < -180) delta += 360;
+
+                    leverHandle.setAngle(deg);
+                    if (Math.abs(delta) > 0.1) handleMachineTurn(delta);
+                }
+            });
+        }
+
+        // --- Level Generator ---
+        function generateRandomLevel() {
+            let generated = false;
+            let layoutData = [];
+            for (let tries=0; tries<100; tries++) {
+                layoutData = [];
+                layoutData.push({ x: 548, y: 323, fixedKey: 'gear_fixed_medium', radius: 45, type: 'input' });
+                
+                let currX = 548, currY = 323, currR = 45;
+                let availableGears = [60, 45, 45, 30, 30, 30]; 
+                Phaser.Utils.Array.Shuffle(availableGears);
+                
+                let pathLen = Phaser.Math.Between(2, 4);
+                let path = availableGears.slice(0, pathLen);
+                
+                let success = true;
+                for (let i=0; i<pathLen; i++) {
+                    let nextR = path[i];
+                    let dist = currR + nextR;
+                    let found = false;
+                    for (let a=0; a<30; a++) {
+                        let angle = Phaser.Math.FloatBetween(Math.PI*0.6, Math.PI*1.4);
+                        let nx = currX + Math.cos(angle)*dist;
+                        let ny = currY + Math.sin(angle)*dist;
+                        if (nx > 100 && nx < 500 && ny > 180 && ny < 440) {
+                            let collision = false;
+                            for(let p of layoutData) {
+                                if (Phaser.Math.Distance.Between(nx, ny, p.x, p.y) < 60) { collision=true; break; }
+                            }
+                            if (!collision) {
+                                layoutData.push({x: nx, y: ny, fixedKey: null, radius: 0, type: 'empty'});
+                                currX = nx; currY = ny; currR = nextR;
+                                found = true; break;
+                            }
+                        }
+                    }
+                    if (!found) { success = false; break; }
+                }
+                
+                if (success) {
+                    let outR = Phaser.Utils.Array.GetRandom([60, 45]); 
+                    let dist = currR + outR;
+                    let found = false;
+                    for (let a=0; a<30; a++) {
+                        let angle = Phaser.Math.FloatBetween(Math.PI*0.6, Math.PI*1.4);
+                        let nx = currX + Math.cos(angle)*dist;
+                        let ny = currY + Math.sin(angle)*dist;
+                        if (nx > 50 && nx < 350 && ny > 180 && ny < 440) {
+                            let collision = false;
+                            for(let p of layoutData) {
+                                if (Phaser.Math.Distance.Between(nx, ny, p.x, p.y) < 65) { collision=true; break; }
+                            }
+                            if (!collision) {
+                                let key = outR === 60 ? 'gear_fixed_large' : 'gear_fixed_medium';
+                                layoutData.push({x: nx, y: ny, fixedKey: key, radius: outR, type: 'output'});
+                                found = true; break;
+                            }
+                        }
+                    }
+                    if (found) { generated = true; break; }
+                }
+            }
+            
+            if (!generated) {
+                layoutData = [
+                    { x: 548, y: 323, fixedKey: 'gear_fixed_medium', radius: 45, type: 'input' },
+                    { x: 443, y: 323, fixedKey: null, radius: 0, type: 'empty' }, 
+                    { x: 353, y: 323, fixedKey: null, radius: 0, type: 'empty' }, 
+                    { x: 263, y: 323, fixedKey: null, radius: 0, type: 'empty' }, 
+                    { x: 158, y: 323, fixedKey: 'gear_fixed_large', radius: 60, type: 'output' }
+                ];
+            }
+
+            let numDistractors = Phaser.Math.Between(2, 4);
+            for (let i=0; i<numDistractors; i++) {
+                let base = Phaser.Utils.Array.GetRandom(layoutData);
+                let baseR = base.radius > 0 ? base.radius : Phaser.Utils.Array.GetRandom([30, 45, 60]);
+                let dummyR = Phaser.Utils.Array.GetRandom([30, 45, 60]);
+                let dDist = baseR + dummyR;
+                
+                for(let a=0; a<20; a++) {
+                    let angle = Phaser.Math.FloatBetween(0, Math.PI*2);
+                    let nx = base.x + Math.cos(angle)*dDist;
+                    let ny = base.y + Math.sin(angle)*dDist;
+                    if (nx > 80 && nx < 520 && ny > 160 && ny < 460) {
+                        let collision = false;
+                        for(let p of layoutData) {
+                            if (Phaser.Math.Distance.Between(nx, ny, p.x, p.y) < 55) { collision=true; break; }
+                        }
+                        if (!collision) {
+                            layoutData.push({x: nx, y: ny, fixedKey: null, radius: 0, type: 'empty'});
+                            break;
+                        }
+                    }
+                }
+            }
+            return layoutData;
+        }
+
+        // --- Core Game Logic ---
+
+        function getScoreMultiplier() {
+            let emptyCount = pegs.filter(p => p.currentGear === null).length;
+            if (emptyCount >= 3) return 1.5;
+            if (emptyCount === 2) return 1.25;
+            if (emptyCount === 1) return 1.125;
+            return 1.0;
+        }
+
+        function updateScoreUI() {
+            if (scoreText) {
+                scoreText.setText(`Score: ${Math.floor(score)}\nMult: ${getScoreMultiplier()}x`);
+            }
+        }
+
+        function updateStatusText() {
+            if (isGameWon) return;
+            
+            updateScoreUI();
+
+            let visited = new Set();
+            let queue = [inputPeg];
+            visited.add(inputPeg);
+            let outputReached = false;
+            
+            while(queue.length > 0) {
+                let curr = queue.shift();
+                if (curr === outputPeg) outputReached = true;
+                
+                for(let peg of pegs) {
+                    if (!visited.has(peg) && peg.currentGear) {
+                        let dist = Phaser.Math.Distance.Between(curr.x, curr.y, peg.x, peg.y);
+                        let reqDist = curr.currentGear.radius + peg.currentGear.radius;
+                        if (Math.abs(dist - reqDist) <= 5) {
+                            visited.add(peg);
+                            queue.push(peg);
+                        }
+                    }
+                }
+            }
+
+            if (outputReached) {
+                statusText.setText('Status: Fully Connected! Spin the lever!');
+                statusText.setColor('#00ff00');
+            } else if (visited.size > 1) {
+                statusText.setText(`Status: Power reaching ${visited.size} parts... Route broken!`);
+                statusText.setColor('#ffff00');
+            } else {
+                statusText.setText('Status: Machine totally disconnected!');
+                statusText.setColor('#ff3333');
+            }
+        }
+
+        function handleMachineTurn(deltaRotation) {
+            leverGear.angle += deltaRotation;
+
+            pegs.forEach(p => p.frameDelta = 0);
+            inputPeg.frameDelta = deltaRotation;
+
+            let queue = [ inputPeg ];
+            let visited = new Set();
+            visited.add(inputPeg);
+            let outputReached = false;
+
+            while(queue.length > 0) {
+                let curr = queue.shift();
+                curr.currentGear.angle += curr.frameDelta;
+
+                if (curr === outputPeg) outputReached = true;
+
+                for (let i=0; i<pegs.length; i++) {
+                    let nextPeg = pegs[i];
+                    if (!visited.has(nextPeg) && nextPeg.currentGear) {
+                        let dist = Phaser.Math.Distance.Between(curr.x, curr.y, nextPeg.x, nextPeg.y);
+                        let reqDist = curr.currentGear.radius + nextPeg.currentGear.radius;
+                        if (Math.abs(dist - reqDist) <= 5) {
+                            visited.add(nextPeg);
+                            nextPeg.frameDelta = -curr.frameDelta * (curr.currentGear.radius / nextPeg.currentGear.radius);
+                            queue.push(nextPeg);
+                        }
+                    }
+                }
+            }
+
+            if (outputReached) {
+                statusText.setText('Status: Machine Running Perfectly!');
+                statusText.setColor('#00ff00');
+
+                let workDone = Math.abs(deltaRotation);
+                progress += workDone * 0.1;
+                if (progress > MAX_PROGRESS) progress = MAX_PROGRESS;
+                progressBarFill.width = (progress / MAX_PROGRESS) * 400;
+
+                score += workDone * 0.5 * getScoreMultiplier();
+                updateScoreUI();
+
+                if (progress >= MAX_PROGRESS) winGame();
+
+                accumulatedRotation += workDone;
+                if (accumulatedRotation > 360) {
+                    accumulatedRotation -= 360;
+                    if (Date.now() - lastPopTime > MIN_POP_DELAY) {
+                        if (Math.random() < 0.25) { 
+                            popRandomGear();
+                            lastPopTime = Date.now();
+                        }
+                    }
+                }
+            } else {
+                leverHandle.x = 650 + (Math.random() * 2 - 1);
+                leverHandle.y = 323 + (Math.random() * 2 - 1);
+                setTimeout(() => { leverHandle.x = 650; leverHandle.y = 323; }, 50);
+            }
+        }
+
+        function popRandomGear() {
+            let removablePegs = pegs.filter(p => p.currentGear !== null && !p.currentGear.isFixed);
+            if (removablePegs.length === 0) return;
+
+            let randomPeg = Phaser.Math.RND.pick(removablePegs);
+            let gear = randomPeg.currentGear;
+
+            randomPeg.currentGear = null;
+            gear.currentPeg = null;
+
+            let popText = gear.scene.add.text(gear.x, gear.y - 40, 'POP!', {
+                fontSize: '28px', fontStyle: 'bold', color: '#ff0000', stroke: '#ffffff', strokeThickness: 4
+            }).setOrigin(0.5).setDepth(20);
+
+            gear.scene.tweens.add({ targets: popText, y: popText.y - 60, alpha: 0, duration: 1000, onComplete: () => popText.destroy() });
+
+            gear.scene.tweens.add({
+                targets: gear, x: gear.startX, y: gear.startY, angle: gear.angle + 720, duration: 600, ease: 'Back.easeOut'
+            });
+
+            updateStatusText();
+        }
+
+        function winGame() {
+            if(isGameWon) return; // Prevent multiple calls
+            isGameWon = true;
+            statusText.setText('Status: LEVEL COMPLETE!');
+            statusText.setColor('#ffff00');
+            statusText.scene.tweens.add({ targets: progressBarFill, alpha: 0.2, yoyo: true, repeat: -1, duration: 250 });
+
+            // Create "Share Highscore" Button directly on top of the status text label
+            shareBtn = statusText.scene.add.text(400, 190, '[ SHARE HIGHSCORE ]', {
+                fontSize: '26px', fontFamily: 'Courier', color: '#ffffff', backgroundColor: '#E1306C', padding: { x: 15, y: 10 }, stroke: '#000000', strokeThickness: 2
+            }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(20);
+
+            shareBtn.on('pointerdown', () => {
+                // Hide buttons so they don't appear in the screenshot
+                shareBtn.setVisible(false);
+                newLevelBtn.setVisible(false);
+                
+                // Phaser's built-in snapshot captures the canvas!
+                game.renderer.snapshot((img) => {
+                    shareBtn.setVisible(true);
+                    newLevelBtn.setVisible(true);
+                    showShareModal(img.src, score, timer);
+                });
+            });
+
+            shareBtn.on('pointerover', () => shareBtn.setStyle({ backgroundColor: '#b82558' }));
+            shareBtn.on('pointerout', () => shareBtn.setStyle({ backgroundColor: '#E1306C' }));
+        }
+
+        function update(time, delta) {
+            if (isGameWon) return;
+
+            if (progress > 0) {
+                timer += delta / 1000;
+                timerText.setText(`Time: ${timer.toFixed(1)}s`);
+
+                let progressRatio = progress / MAX_PROGRESS; 
+                let baseDrainPerSecond = 15; 
+                let drainMultiplier = 1 + (progressRatio * 2); 
+                let drainAmount = (baseDrainPerSecond * drainMultiplier) * (delta / 1000);
+                
+                progress -= drainAmount;
+
+                let timePenalty = 1 + (timer / 5); 
+                score -= (drainAmount * 2) * timePenalty;
+                if (score < 0) score = 0;
+
+                if (progress <= 0) {
+                    progress = 0;
+                    score = 0;
+                    timer = 0;
+                    timerText.setText('Time: 0.0s');
+                }
+
+                updateScoreUI();
+                progressBarFill.width = (progress / MAX_PROGRESS) * 400;
+            }
+        }
+
+        // --- Procedural Asset Generators ---
+        function createWoodTexture(scene) {
+            const g = scene.make.graphics({x:0, y:0, add: false});
+            g.fillStyle(0x3b2d20, 1); g.fillRect(0, 0, 800, 600);
+            g.lineStyle(2, 0x2a1c11, 1);
+            for(let i=1; i<16; i++) { g.beginPath(); g.moveTo(i*50, 0); g.lineTo(i*50, 600); g.strokePath(); }
+            g.generateTexture('wood_bg', 800, 600);
+        }
+
+        function createGearTexture(scene, key, color, radius) {
+            const g = scene.make.graphics({ x: 0, y: 0, add: false });
+            const padding = 10, size = (radius + padding) * 2, cx = size / 2, cy = size / 2;
+            const rOuter = radius, rInner = radius - (radius * 0.2), rHole = 10;
+            
+            g.fillStyle(color, 1); g.lineStyle(2, 0x000000, 0.6); g.beginPath();
+            const teeth = Math.floor(radius / 3.5), steps = teeth * 2;
+            for (let i = 0; i <= steps; i++) {
+                const angle = (i / steps) * Math.PI * 2, r = (i % 2 === 0) ? rOuter : rInner;
+                const nextAngle = ((i + 0.5) / steps) * Math.PI * 2;
+                if (i === 0) g.moveTo(cx + Math.cos(angle) * r, cy + Math.sin(angle) * r);
+                else g.lineTo(cx + Math.cos(angle) * r, cy + Math.sin(angle) * r);
+                g.lineTo(cx + Math.cos(nextAngle) * r, cy + Math.sin(nextAngle) * r);
+            }
+            g.closePath(); g.fillPath(); g.strokePath();
+            g.lineStyle(2, 0x000000, 0.3); g.strokeCircle(cx, cy, radius * 0.5);
+            g.fillStyle(0x2a1c11, 1); g.fillCircle(cx, cy, rHole);
+            g.lineStyle(2, 0x000000, 0.8); g.strokeCircle(cx, cy, rHole);
+            g.generateTexture(key, size, size);
+        }
+
+        function createPegTexture(scene) {
+            const g = scene.make.graphics({x:0, y:0, add: false});
+            g.fillStyle(0x1a1a1a, 1); g.fillCircle(10, 10, 15);
+            g.fillStyle(0x555555, 1); g.fillCircle(10, 10, 8);
+            g.lineStyle(2, 0x000000, 1); g.strokeCircle(10, 10, 8);
+            g.generateTexture('peg', 20, 20);
+        }
+
+        function createLeverTextures(scene) {
+            const gBase = scene.make.graphics({x:0, y:0, add: false});
+            gBase.fillStyle(0x444444, 1); gBase.fillCircle(30, 30, 30);
+            gBase.lineStyle(3, 0x000000, 1); gBase.strokeCircle(30, 30, 30);
+            gBase.fillStyle(0x111111, 1); gBase.fillCircle(30, 30, 12);
+            gBase.generateTexture('lever_base', 60, 60);
+
+            const gHandle = scene.make.graphics({x:0, y:0, add: false});
+            gHandle.fillStyle(0x6b4226, 1); gHandle.fillRect(0, 22, 140, 16);
+            gHandle.lineStyle(2, 0x000000, 1); gHandle.strokeRect(0, 22, 140, 16);
+            gHandle.fillStyle(0x666666, 1); gHandle.fillCircle(10, 30, 18); gHandle.strokeCircle(10, 30, 18);
+            gHandle.fillStyle(0x992222, 1); gHandle.fillCircle(140, 30, 22); gHandle.strokeCircle(140, 30, 22);
+            gHandle.generateTexture('lever_handle', 170, 60);
+        }
+
+        // --- DOM Export & Share Logic ---
+        function showShareModal(imgSrc, currentScore, currentTime) {
+            const modal = document.getElementById('share-modal');
+            const preview = document.getElementById('share-preview');
+            preview.src = imgSrc;
+            modal.style.display = 'flex';
+
+            const shareText = `I just scored ${Math.floor(currentScore)} points in ${currentTime.toFixed(1)}s on Ye Old Machines! Can you engineer a better machine? ⚙️🔧`;
+
+            // Native Sharing (Mobile apps like Instagram, Facebook App, Bluesky App)
+            document.getElementById('btn-native-share').onclick = async () => {
+                try {
+                    // Convert base64 to a File object for the native share sheet
+                    const response = await fetch(imgSrc);
+                    const blob = await response.blob();
+                    const file = new File([blob], 'highscore.png', { type: blob.type });
+
+                    // Check if navigator.share is supported AND supports files
+                    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                        await navigator.share({
+                            title: 'Ye Old Machines Highscore',
+                            text: shareText,
+                            files: [file]
+                        });
+                    } else if (navigator.share) {
+                        // Fallback: Share just text if image file sharing isn't supported
+                        await navigator.share({
+                            title: 'Ye Old Machines Highscore',
+                            text: shareText
+                        });
+                    } else {
+                        alert("Native App sharing not supported on this browser. Use the buttons below!");
+                    }
+                } catch (err) {
+                    console.error('Share failed:', err);
+                }
+            };
+
+            // Download directly to device
+            document.getElementById('btn-download').onclick = () => {
+                const a = document.createElement('a');
+                a.href = imgSrc;
+                a.download = `ye-old-machines-${Math.floor(currentScore)}.png`;
+                a.click();
+            };
+
+            // X / Twitter Web intent
+            document.getElementById('btn-x').onclick = () => {
+                window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`, '_blank');
+            };
+
+            // Reddit Web intent
+            document.getElementById('btn-reddit').onclick = () => {
+                window.open(`https://reddit.com/submit?title=${encodeURIComponent(shareText)}`, '_blank');
+            };
+        }
+    </script>
+</body>
+</html>

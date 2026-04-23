@@ -7,15 +7,14 @@
     <!-- Using Phaser 3 via CDN for instant preview compatibility -->
     <script src="phaser.min.js"></script>
     <style>
-        body {
+        html, body {
             margin: 0;
             padding: 0;
+            width: 100%;
+            height: 100%;
+        }
+        body {
             background-color: #1a1a1a;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            width: 100vw;
             overflow: hidden; /* Prevents pull-to-refresh and scrolling on mobile */
             color: white;
             font-family: 'Courier New', Courier, monospace;
@@ -23,9 +22,7 @@
         #game-container {
             width: 100%;
             height: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            /* Phaser's ScaleManager handles centering internally, Flexbox here can conflict in iframes */
         }
         /* Apply the decorative frame directly to the canvas so it scales perfectly */
         canvas {
@@ -37,34 +34,37 @@
         /* Share Modal Styles */
         #share-modal {
             display: none;
-            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.85); z-index: 1000;
             justify-content: center; align-items: center;
             font-family: 'Courier New', Courier, monospace;
         }
         .modal-content {
             background: #2a1c11; border: 4px solid #cd7f32; border-radius: 10px;
-            padding: 20px; text-align: center; max-width: 90%; width: 400px;
+            padding: 15px; text-align: center; max-width: 90%; width: 400px;
+            max-height: 95vh; overflow-y: auto; /* Allow scrolling on extremely small screens */
             position: relative; box-shadow: 0 0 20px rgba(0,0,0,0.8);
+            box-sizing: border-box;
         }
         .close-btn {
             position: absolute; top: 5px; right: 15px; font-size: 32px; cursor: pointer; color: #ffcc00; font-weight: bold;
         }
         .close-btn:hover { color: #ffffff; }
         #share-preview {
-            width: 100%; border: 2px solid #1a1a1a; margin: 10px 0; border-radius: 5px;
+            width: 100%; max-height: 30vh; object-fit: contain; /* Prevents image from blowing up UI */
+            border: 2px solid #1a1a1a; margin: 10px 0; border-radius: 5px;
             background: #000;
         }
         .share-buttons {
-            display: flex; flex-direction: column; gap: 10px; margin-top: 10px;
+            display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 5px;
         }
         .share-buttons button {
-            padding: 12px; font-family: 'Courier New', Courier, monospace; font-size: 16px;
+            padding: 8px 4px; font-family: 'Courier New', Courier, monospace; font-size: 13px;
             font-weight: bold; cursor: pointer; border: 2px solid #000; border-radius: 5px;
             transition: opacity 0.2s;
         }
         .share-buttons button:hover { opacity: 0.8; }
-        #btn-native-share { background: #E1306C; color: white; } /* Instagram/App color */
+        #btn-native-share { grid-column: span 2; padding: 12px; font-size: 15px; background: #E1306C; color: white; } /* Instagram/App color */
         #btn-download { background: #4CAF50; color: white; }
         #btn-x { background: #1DA1F2; color: white; }
         #btn-reddit { background: #FF4500; color: white; }
@@ -77,14 +77,14 @@
     <div id="share-modal">
         <div class="modal-content">
             <span class="close-btn" onclick="document.getElementById('share-modal').style.display='none'">&times;</span>
-            <h2 style="margin-top: 0; color: #ffcc00;">Highscore Captured!</h2>
-            <p style="font-size: 14px; margin-bottom: 5px;">Show off your engineering skills!</p>
+            <h2 style="margin-top: 0; margin-bottom: 5px; font-size: 22px; color: #ffcc00;">Highscore Captured!</h2>
+            <p style="font-size: 13px; margin: 0;">Show off your engineering skills!</p>
             <img id="share-preview" src="" alt="Snapshot" />
             <div class="share-buttons">
-                <button id="btn-native-share">📲 Share to Apps (Insta, Bluesky...)</button>
+                <button id="btn-native-share">📲 Share to Apps</button>
                 <button id="btn-download">💾 Save Image</button>
                 <button id="btn-x">🐦 Share on X</button>
-                <button id="btn-reddit">🤖 Share on Reddit</button>
+                <button id="btn-reddit" style="grid-column: span 2;">🤖 Share on Reddit</button>
             </div>
         </div>
     </div>
@@ -96,7 +96,7 @@
             scale: {
                 mode: Phaser.Scale.FIT,
                 autoCenter: Phaser.Scale.CENTER_BOTH,
-                width: 800,
+                width: 1066,
                 height: 600,
                 parent: 'game-container'
             },
@@ -158,9 +158,9 @@
             score = 0;
             timer = 0;
 
-            this.add.image(400, 300, 'wood_bg');
+            this.add.image(533, 300, 'wood_bg');
 
-            this.add.text(400, 30, 'YE OLD MACHINES!', {
+            this.add.text(533, 30, 'YE OLD MACHINES!', {
                 fontSize: '36px', fontFamily: 'Courier', color: '#ffcc00', fontStyle: 'bold', stroke: '#000000', strokeThickness: 4
             }).setOrigin(0.5);
 
@@ -169,29 +169,29 @@
                 fontSize: '18px', fontFamily: 'Courier', color: '#ffffff'
             });
 
-            timerText = this.add.text(780, 20, 'Time: 0.0s', {
+            timerText = this.add.text(1046, 20, 'Time: 0.0s', {
                 fontSize: '18px', fontFamily: 'Courier', color: '#ffffff'
             }).setOrigin(1, 0);
 
-            this.add.rectangle(400, 80, 404, 24, 0x000000).setOrigin(0.5);
-            progressBarFill = this.add.rectangle(200, 80, 0, 20, 0x00ff00).setOrigin(0, 0.5);
+            this.add.rectangle(533, 80, 404, 24, 0x000000).setOrigin(0.5);
+            progressBarFill = this.add.rectangle(333, 80, 0, 20, 0x00ff00).setOrigin(0, 0.5);
 
-            statusText = this.add.text(400, 115, 'Status: Awaiting Assembly', {
+            statusText = this.add.text(533, 115, 'Status: Awaiting Assembly', {
                 fontSize: '18px', fontFamily: 'Courier', color: '#ffffff', backgroundColor: '#000000', padding: { x: 10, y: 5 }
             }).setOrigin(0.5);
 
-            this.add.text(400, 150, 'Drag gears to empty pegs. Sizes MUST match the gaps to mesh!', {
+            this.add.text(533, 150, 'Drag gears to empty pegs. Sizes MUST match the gaps to mesh!', {
                 fontSize: '14px', fontFamily: 'Courier', color: '#dddddd'
             }).setOrigin(0.5);
 
             // Reduced Toolbox Height
-            this.add.rectangle(400, 540, 800, 120, 0x2a1c11).setOrigin(0.5);
-            this.add.text(400, 495, '- TOOLBOX -', {
+            this.add.rectangle(533, 540, 1066, 120, 0x2a1c11).setOrigin(0.5);
+            this.add.text(533, 495, '- TOOLBOX -', {
                 fontSize: '18px', fontFamily: 'Courier', color: '#888888'
             }).setOrigin(0.5);
 
             // New Level Button (Top Right, below Timer)
-            newLevelBtn = this.add.text(780, 50, '[ NEW LEVEL ]', {
+            newLevelBtn = this.add.text(1046, 50, '[ NEW LEVEL ]', {
                 fontSize: '18px', fontFamily: 'Courier', color: '#ffcc00', backgroundColor: '#4a2e15', padding: { x: 10, y: 5 }, stroke: '#000000', strokeThickness: 2
             }).setOrigin(1, 0).setInteractive({ useHandCursor: true });
 
@@ -221,7 +221,7 @@
             });
 
             // 4. Chains, Drive Belts, and Lever System
-            let leverX = 650;
+            let leverX = 850;
             let leverY = 323;
 
             // Visual Chain from the RANDOMIZED Output Peg horizontally to the LEFT edge
@@ -245,11 +245,11 @@
             // 5. Create Draggable Gears
             const gearConfigs = [
                 { key: 'gear_drag_large', x: 150, y: 550, radius: 60 },
-                { key: 'gear_drag_medium', x: 250, y: 550, radius: 45 },
-                { key: 'gear_drag_medium', x: 350, y: 550, radius: 45 },
-                { key: 'gear_drag_small', x: 450, y: 550, radius: 30 },
-                { key: 'gear_drag_small', x: 550, y: 550, radius: 30 },
-                { key: 'gear_drag_small', x: 650, y: 550, radius: 30 }
+                { key: 'gear_drag_medium', x: 300, y: 550, radius: 45 },
+                { key: 'gear_drag_medium', x: 450, y: 550, radius: 45 },
+                { key: 'gear_drag_small', x: 600, y: 550, radius: 30 },
+                { key: 'gear_drag_small', x: 750, y: 550, radius: 30 },
+                { key: 'gear_drag_small', x: 900, y: 550, radius: 30 }
             ];
 
             gears = gearConfigs.map(conf => {
@@ -331,9 +331,9 @@
             let layoutData = [];
             for (let tries=0; tries<100; tries++) {
                 layoutData = [];
-                layoutData.push({ x: 548, y: 323, fixedKey: 'gear_fixed_medium', radius: 45, type: 'input' });
+                layoutData.push({ x: 748, y: 323, fixedKey: 'gear_fixed_medium', radius: 45, type: 'input' });
                 
-                let currX = 548, currY = 323, currR = 45;
+                let currX = 748, currY = 323, currR = 45;
                 let availableGears = [60, 45, 45, 30, 30, 30]; 
                 Phaser.Utils.Array.Shuffle(availableGears);
                 
@@ -349,7 +349,7 @@
                         let angle = Phaser.Math.FloatBetween(Math.PI*0.6, Math.PI*1.4);
                         let nx = currX + Math.cos(angle)*dist;
                         let ny = currY + Math.sin(angle)*dist;
-                        if (nx > 100 && nx < 500 && ny > 180 && ny < 440) {
+                        if (nx > 200 && nx < 700 && ny > 180 && ny < 440) {
                             let collision = false;
                             for(let p of layoutData) {
                                 if (Phaser.Math.Distance.Between(nx, ny, p.x, p.y) < 60) { collision=true; break; }
@@ -372,7 +372,7 @@
                         let angle = Phaser.Math.FloatBetween(Math.PI*0.6, Math.PI*1.4);
                         let nx = currX + Math.cos(angle)*dist;
                         let ny = currY + Math.sin(angle)*dist;
-                        if (nx > 50 && nx < 350 && ny > 180 && ny < 440) {
+                        if (nx > 100 && nx < 400 && ny > 180 && ny < 440) {
                             let collision = false;
                             for(let p of layoutData) {
                                 if (Phaser.Math.Distance.Between(nx, ny, p.x, p.y) < 65) { collision=true; break; }
@@ -390,11 +390,11 @@
             
             if (!generated) {
                 layoutData = [
-                    { x: 548, y: 323, fixedKey: 'gear_fixed_medium', radius: 45, type: 'input' },
-                    { x: 443, y: 323, fixedKey: null, radius: 0, type: 'empty' }, 
-                    { x: 353, y: 323, fixedKey: null, radius: 0, type: 'empty' }, 
-                    { x: 263, y: 323, fixedKey: null, radius: 0, type: 'empty' }, 
-                    { x: 158, y: 323, fixedKey: 'gear_fixed_large', radius: 60, type: 'output' }
+                    { x: 748, y: 323, fixedKey: 'gear_fixed_medium', radius: 45, type: 'input' },
+                    { x: 643, y: 323, fixedKey: null, radius: 0, type: 'empty' }, 
+                    { x: 553, y: 323, fixedKey: null, radius: 0, type: 'empty' }, 
+                    { x: 463, y: 323, fixedKey: null, radius: 0, type: 'empty' }, 
+                    { x: 358, y: 323, fixedKey: 'gear_fixed_large', radius: 60, type: 'output' }
                 ];
             }
 
@@ -409,7 +409,7 @@
                     let angle = Phaser.Math.FloatBetween(0, Math.PI*2);
                     let nx = base.x + Math.cos(angle)*dDist;
                     let ny = base.y + Math.sin(angle)*dDist;
-                    if (nx > 80 && nx < 520 && ny > 160 && ny < 460) {
+                    if (nx > 100 && nx < 720 && ny > 160 && ny < 460) {
                         let collision = false;
                         for(let p of layoutData) {
                             if (Phaser.Math.Distance.Between(nx, ny, p.x, p.y) < 55) { collision=true; break; }
@@ -534,9 +534,9 @@
                     }
                 }
             } else {
-                leverHandle.x = 650 + (Math.random() * 2 - 1);
+                leverHandle.x = 850 + (Math.random() * 2 - 1);
                 leverHandle.y = 323 + (Math.random() * 2 - 1);
-                setTimeout(() => { leverHandle.x = 650; leverHandle.y = 323; }, 50);
+                setTimeout(() => { leverHandle.x = 850; leverHandle.y = 323; }, 50);
             }
         }
 
@@ -571,7 +571,7 @@
             statusText.scene.tweens.add({ targets: progressBarFill, alpha: 0.2, yoyo: true, repeat: -1, duration: 250 });
 
             // Create "Share Highscore" Button directly on top of the status text label
-            shareBtn = statusText.scene.add.text(400, 190, '[ SHARE HIGHSCORE ]', {
+            shareBtn = statusText.scene.add.text(533, 190, '[ SHARE HIGHSCORE ]', {
                 fontSize: '26px', fontFamily: 'Courier', color: '#ffffff', backgroundColor: '#E1306C', padding: { x: 15, y: 10 }, stroke: '#000000', strokeThickness: 2
             }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(20);
 
@@ -625,10 +625,10 @@
         // --- Procedural Asset Generators ---
         function createWoodTexture(scene) {
             const g = scene.make.graphics({x:0, y:0, add: false});
-            g.fillStyle(0x3b2d20, 1); g.fillRect(0, 0, 800, 600);
+            g.fillStyle(0x3b2d20, 1); g.fillRect(0, 0, 1066, 600);
             g.lineStyle(2, 0x2a1c11, 1);
-            for(let i=1; i<16; i++) { g.beginPath(); g.moveTo(i*50, 0); g.lineTo(i*50, 600); g.strokePath(); }
-            g.generateTexture('wood_bg', 800, 600);
+            for(let i=1; i<22; i++) { g.beginPath(); g.moveTo(i*50, 0); g.lineTo(i*50, 600); g.strokePath(); }
+            g.generateTexture('wood_bg', 1066, 600);
         }
 
         function createGearTexture(scene, key, color, radius) {
@@ -682,7 +682,16 @@
             preview.src = imgSrc;
             modal.style.display = 'flex';
 
-            const shareText = `I just scored ${Math.floor(currentScore)} points in ${currentTime.toFixed(1)}s on Ye Old Machines! Can you engineer a better machine? ⚙️🔧`;
+            const shareText = `I just scored ${Math.floor(currentScore)} points in ${currentTime.toFixed(1)}s on Ye Old Machines! Can you engineer a better machine? ⚙️🔧\nPlay here: https://tomazellagames.itch.io/ye-old-machines`;
+
+            // Helper to download the screenshot
+            const downloadImage = () => {
+                const dateStr = new Date().toISOString().slice(0, 10);
+                const a = document.createElement('a');
+                a.href = imgSrc;
+                a.download = `screenshot-ye-old-machines-${dateStr}.png`;
+                a.click();
+            };
 
             // Native Sharing (Mobile apps like Instagram, Facebook App, Bluesky App)
             document.getElementById('btn-native-share').onclick = async () => {
@@ -714,20 +723,17 @@
             };
 
             // Download directly to device
-            document.getElementById('btn-download').onclick = () => {
-                const a = document.createElement('a');
-                a.href = imgSrc;
-                a.download = `ye-old-machines-${Math.floor(currentScore)}.png`;
-                a.click();
-            };
+            document.getElementById('btn-download').onclick = downloadImage;
 
             // X / Twitter Web intent
             document.getElementById('btn-x').onclick = () => {
+                downloadImage();
                 window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`, '_blank');
             };
 
             // Reddit Web intent
             document.getElementById('btn-reddit').onclick = () => {
+                downloadImage();
                 window.open(`https://reddit.com/submit?title=${encodeURIComponent(shareText)}`, '_blank');
             };
         }

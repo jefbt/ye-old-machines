@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Ye Old Machines!</title>
     <!-- Using Phaser 3 via CDN for instant preview compatibility -->
-    <script src="phaser.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.80.1/phaser.min.js"></script>
     <style>
         html, body {
             margin: 0;
@@ -90,6 +90,48 @@
     </div>
 
     <script>
+        // --- Procedural Audio Synthesizer ---
+        let actx = null;
+        function initAudio() {
+            if (!actx) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                actx = new AudioContext();
+            }
+            if (actx.state === 'suspended') actx.resume();
+        }
+
+        const sfx = {
+            playTone: function(freq, type, dur, vol, slideFreq) {
+                if (!actx) return;
+                let osc = actx.createOscillator();
+                let gain = actx.createGain();
+                osc.type = type;
+                osc.connect(gain);
+                gain.connect(actx.destination);
+                osc.frequency.setValueAtTime(freq, actx.currentTime);
+                if (slideFreq) osc.frequency.exponentialRampToValueAtTime(slideFreq, actx.currentTime + dur);
+                gain.gain.setValueAtTime(vol, actx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, actx.currentTime + dur);
+                osc.start(actx.currentTime);
+                osc.stop(actx.currentTime + dur);
+            },
+            levelStart: () => {
+                sfx.playTone(880, 'sine', 0.1, 0.05);
+                setTimeout(() => sfx.playTone(1318, 'sine', 0.2, 0.05), 100);
+            },
+            placeGear: () => sfx.playTone(600, 'square', 0.1, 0.1, 800), // Quick snap
+            popGear: () => sfx.playTone(400, 'sawtooth', 0.3, 0.1, 50),  // Boing/Spring down
+            win: () => {
+                sfx.playTone(440, 'sine', 0.2, 0.1);
+                setTimeout(() => sfx.playTone(554, 'sine', 0.2, 0.1), 150);
+                setTimeout(() => sfx.playTone(659, 'sine', 0.2, 0.1), 300);
+                setTimeout(() => sfx.playTone(880, 'sine', 0.5, 0.1), 450);
+            },
+            fail: () => sfx.playTone(200, 'sawtooth', 0.6, 0.1, 40), // Sad slide down
+            spinGood: () => sfx.playTone(120, 'triangle', 0.1, 0.05), // Smooth mechanical hum
+            spinBad: () => sfx.playTone(80, 'square', 0.1, 0.05, 40)   // Clanky broken rattle
+        };
+
         // --- Phaser Game Configuration ---
         const config = {
             type: Phaser.AUTO,
@@ -122,6 +164,7 @@
         let isGameWon = false;
         let lastPopTime = Date.now();
         const MIN_POP_DELAY = 4000;
+        let lastSpinSfxTime = 0; // Throttles spinning sounds
         
         let newLevelBtn;
         let shareBtn;
@@ -149,6 +192,9 @@
 
         // --- Create Game Scene ---
         function create() {
+            // Unlock audio on first user interaction
+            this.input.on('pointerdown', () => initAudio());
+
             // Reset global states for when the scene restarts
             isDraggingLever = false;
             progress = 0;
@@ -195,7 +241,11 @@
                 fontSize: '18px', fontFamily: 'Courier', color: '#ffcc00', backgroundColor: '#4a2e15', padding: { x: 10, y: 5 }, stroke: '#000000', strokeThickness: 2
             }).setOrigin(1, 0).setInteractive({ useHandCursor: true });
 
-            newLevelBtn.on('pointerdown', () => this.scene.restart());
+            newLevelBtn.on('pointerdown', () => {
+                initAudio();
+                sfx.levelStart();
+                this.scene.restart();
+            });
             newLevelBtn.on('pointerover', () => newLevelBtn.setStyle({ color: '#ffffff', backgroundColor: '#6b4226' }));
             newLevelBtn.on('pointerout', () => newLevelBtn.setStyle({ color: '#ffcc00', backgroundColor: '#4a2e15' }));
 
@@ -295,6 +345,9 @@
                         peg.currentGear = gameObject;
                         snapped = true;
                         
+                        // Play gear placed sound effect
+                        sfx.placeGear();
+
                         this.tweens.add({ targets: gameObject, scaleX: 1.1, scaleY: 1.1, yoyo: true, duration: 100 });
                         break;
                     }
@@ -509,6 +562,14 @@
                 }
             }
 
+            // --- Sound Effect Throttle Logic ---
+            let now = Date.now();
+            if (Math.abs(deltaRotation) > 0.5 && now - lastSpinSfxTime > 80) {
+                if (outputReached) sfx.spinGood();
+                else sfx.spinBad();
+                lastSpinSfxTime = now;
+            }
+
             if (outputReached) {
                 statusText.setText('Status: Machine Running Perfectly!');
                 statusText.setColor('#00ff00');
@@ -550,6 +611,9 @@
             randomPeg.currentGear = null;
             gear.currentPeg = null;
 
+            // Play Pop Sound
+            sfx.popGear();
+
             let popText = gear.scene.add.text(gear.x, gear.y - 40, 'POP!', {
                 fontSize: '28px', fontStyle: 'bold', color: '#ff0000', stroke: '#ffffff', strokeThickness: 4
             }).setOrigin(0.5).setDepth(20);
@@ -566,6 +630,10 @@
         function winGame() {
             if(isGameWon) return; // Prevent multiple calls
             isGameWon = true;
+
+            // Play Victory Chime
+            sfx.win();
+
             statusText.setText('Status: LEVEL COMPLETE!');
             statusText.setColor('#ffff00');
             statusText.scene.tweens.add({ targets: progressBarFill, alpha: 0.2, yoyo: true, repeat: -1, duration: 250 });
@@ -610,7 +678,9 @@
                 score -= (drainAmount * 2) * timePenalty;
                 if (score < 0) score = 0;
 
-                if (progress <= 0) {
+                // Handle Failure Zeroing
+                if (progress <= 0 && timer > 0) {
+                    sfx.fail(); // Play slide-down sad fail sound
                     progress = 0;
                     score = 0;
                     timer = 0;

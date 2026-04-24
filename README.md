@@ -38,7 +38,7 @@ The game features:
 
 ## 🛠️ Built With
 
-- **Phaser 4** – HTML5 game framework
+- **Phaser 3** – HTML5 game framework
 - Pure JavaScript – no build step required
 - Procedurally generated textures – all assets created at runtime
 
